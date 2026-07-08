@@ -41,6 +41,11 @@ on:
       - '.claude/**'
       - '.idea/**'
 
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
 jobs:
   unit:
     uses: ./.github/workflows/run_tests.yml
