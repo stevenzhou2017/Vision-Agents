@@ -1,0 +1,77 @@
+name: Integration (daily)
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+      timezone: "America/Los_Angeles"
+  workflow_dispatch:
+    inputs:
+      run_external_smoke:
+        description: "Run tests marked external (requires repository-specific credentials/services)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-daily
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_INPUT: "1"
+
+jobs:
+  integration:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install integration dependencies
+        run: python scripts/ci/install_python_deps.py --group integration
+
+      - name: Environment preflight
+        run: python scripts/ci/collect_diagnostics.py --job integration-preflight
+
+      - name: Run deterministic regression suite
+        run: python scripts/ci/run_pytest.py --suite unit --timeout 120
+
+      - name: Run integration suite
+        run: python scripts/ci/run_pytest.py --suite integration --timeout 180
+
+      - name: Run external smoke suite
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_external_smoke }}
+        run: python scripts/ci/run_pytest.py --suite external --timeout 180
+
+      - name: Collect final diagnostics
+        if: always()
+        run: python scripts/ci/collect_diagnostics.py --job integration
+
+      - name: Upload integration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-integration-diagnostics-${{ github.run_id }}
+          path: |
+            artifacts/diagnostics/
+            artifacts/test-results/
+            artifacts/cpp/
+          if-no-files-found: warn
+          retention-days: 30
